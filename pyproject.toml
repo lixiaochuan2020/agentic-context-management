@@ -1,0 +1,27 @@
+[project]
+name = "agent-self-context-management"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate>=1.12.0",
+    "html2text>=2025.4.15",
+    "litellm>=1.83.0",
+    "lxml>=6.0.2",
+    "openai>=2.24.0",
+    "pyserini>=1.4.0",
+    "python-dotenv>=1.2.2",
+    "requests>=2.32.5",
+    "numpy>=2.0.0",
+    "torch>=2.10.0",
+    "transformers>=5.2.0",
+    "faiss-cpu>=1.13.0",
+    "scikit-learn>=1.8.0",
+    "matplotlib>=3.10.8",
+    "scipy>=1.17.1",
+    "umap-learn>=0.5.12",
+    "tqdm>=4.67.3",
+    "gdown>=6.0.0",
+    "omegaconf>=2.3",
+    "pypdf>=6.12.1",
+]

@@ -1,0 +1,26 @@
+# Secrets / local config
+.env
+scripts/pipeline_config.local.sh
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Pipeline outputs (large; kept out of git) — anchored to repo root
+/logs/
+/wandb/
+/results/
+/checkpoints/
+
+# Downloaded corpus / indexes / model weights
+data/BrowseComp-Plus/
+
+# Teacher-annotation outputs (regenerated at runtime)
+src/teacher_guide/results/*/
+!src/teacher_guide/results/.gitkeep
+
+# OS / editor
+.DS_Store
+*.swp

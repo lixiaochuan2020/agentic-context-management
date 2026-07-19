@@ -1,0 +1,31 @@
+# Project-wide RunConfig overrides.
+#
+# Anything not listed here falls back to the dataclass defaults in
+# src/configs/. CLI flags / --override key=val have higher priority than
+# this file.
+
+agent:
+  model: openai/qwen3.5-9b-base
+  api_base: http://localhost:8003/v1
+  context_window: 131072
+  rollout:
+    max_new_tokens: 16384
+
+summarizer:
+  # Self-summarization: route manage_context / query_memory through the
+  # same local vLLM as the agent.
+  model: openai/qwen3.5-9b-base
+  api_base: http://localhost:8003/v1
+
+retrieval:
+  backend: qwen3_8b_embedding
+  index_path: data/BrowseComp-Plus/indexes/bm25
+  qwen3_8b_embedding_shards_dir: data/BrowseComp-Plus/indexes/qwen3-embedding-8b
+  k: 10
+  snippet_new_tokens: 512
+  snippet_seen_tokens: 128
+  get_document_max_tokens: 8192
+
+runtime:
+  benchmark: browsecomp-plus
+  max_iterations: 100
