@@ -7,10 +7,7 @@ ACM: Agentic Context Management for Long Horizon Tasks
 
 <a href="https://scholar.google.com/citations?user=Rw4NiLAAAAAJ&hl=en">Shuai Shao</a>², <a href="https://scholar.google.com/citations?hl=zh-CN&user=CS5uNscAAAAJ&view_op=list_works&sortby=pubdate">Rong Jin</a>², <a href="https://www.cs.cmu.edu/~cx/">Chenyan Xiong</a>¹
 
-¹ Carnegie Mellon University  
-² Meta
-
-<sub>*Equal contribution</sub>
+¹ Carnegie Mellon University   ² Meta   *Equal contribution
 </div>
 
 <div align="center">
