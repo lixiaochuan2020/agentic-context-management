@@ -115,7 +115,7 @@ _STUDENT_REVISE_INSTRUCTION = """\
 Pause your investigation. The conversation above is your most recent context — earlier turns may have been compressed into summary_id entries or trimmed for brevity. The following message is an out-of-band instruction; once you have followed it, resume normal operation as if no interruption occurred.
 
 Your most recent next-step (now retracted, to be replaced by your next assistant turn):
-{a0_last_attempt}
+{init_last_attempt}
 
 External feedback on that retracted next-step:
 {teacher_feedback}
@@ -173,7 +173,7 @@ Then issue the tool calls you want to execute. You must produce at least one too
 
 
 
-# Words that betray the off-trajectory teacher origin if they leak into A_1.
+# Words that betray the off-trajectory teacher origin if they leak into guided.
 _FORBIDDEN_RE = re.compile(
     r"\b(coach|coaches|coaching|feedback|review(ed|er|ers|s)?|"
     r"advis(e|ed|er|or|ors)|guidance|guided|guided me|told me|"
@@ -217,10 +217,10 @@ def _strip_first_sentence_if_user_ref(text: str) -> str:
     return text
 
 
-# ── Student revise: turn teacher feedback into A_1 (1st-person + next action) ──
+# ── Student revise: turn teacher feedback into guided (1st-person + next action) ──
 
-def _extract_a0_think_part(content: str) -> str:
-    """Return the pre-`</think>` portion of A_0's last-turn content.
+def _extract_init_think_part(content: str) -> str:
+    """Return the pre-`</think>` portion of initial's last-turn content.
 
     Chat template auto-opens `<think>` for assistant turns, so the model's
     output is `[think content]</think>\\n\\n[visible text]`. For
@@ -240,26 +240,26 @@ def student_revise(
     student_client: LiteLLMClient,
     base_config: RunConfig,
     question: str,
-    a0_last_asst: dict,
+    init_last_asst: dict,
     teacher_feedback: str,
     max_retries: int = 1,
 ) -> tuple[dict, bool] | None:
-    """Generate A_1: a single assistant message {role, content, tool_calls} that
-    replaces A_0's failure-point turn, plus a `reflection_valid` flag.
+    """Generate guided: a single assistant message {role, content, tool_calls} that
+    replaces initial's failure-point turn, plus a `reflection_valid` flag.
 
     Uses _STUDENT_REVISE_INSTRUCTION_LAST_TURN_ONLY — a self-contained prompt
-    (question + a0 thinking + teacher feedback packaged into a single user
-    message; no history replay). The caller splices only the returned `a_1`
+    (question + initial thinking + teacher feedback packaged into a single user
+    message; no history replay). The caller splices only the returned `guided`
     assistant message into the saved history.
 
-    Returns (a_1, reflection_valid) where `reflection_valid` is True iff the
+    Returns (guided, reflection_valid) where `reflection_valid` is True iff the
     model emitted a properly bounded `<reflection>...</reflection>` block
     that the post-processing successfully extracted. Returns None if no
-    usable A_1 could be produced.
+    usable guided could be produced.
     """
-    a0_think = _extract_a0_think_part(a0_last_asst.get("content") or "")
+    init_think = _extract_init_think_part(init_last_asst.get("content") or "")
     revise_prompt = _STUDENT_REVISE_INSTRUCTION_LAST_TURN_ONLY.format(
-        previous_action=a0_think[:4000],   # cap to avoid blowing context
+        previous_action=init_think[:4000],   # cap to avoid blowing context
         feedback=teacher_feedback,
     )
     tools = get_tools(
@@ -279,7 +279,7 @@ def student_revise(
         last_content, last_tool_calls = content, tool_calls
 
         if not tool_calls:
-            logger.warning("  [revise] attempt %d: no tool_call in A_1 (retry); content tail (last 2000 chars): %s",
+            logger.warning("  [revise] attempt %d: no tool_call in guided (retry); content tail (last 2000 chars): %s",
                            attempt, repr(content[-2000:]))
             continue
         # Post-processing forbidden-word retry disabled while testing <reflection>
@@ -287,7 +287,7 @@ def student_revise(
         # if _has_forbidden(content):
         #     logger.warning("  [revise] attempt %d: forbidden word detected (retry)", attempt)
         #     continue
-        logger.info("  [revise] attempt %d: A_1 OK (%d tool_calls, %d chars)",
+        logger.info("  [revise] attempt %d: guided OK (%d tool_calls, %d chars)",
                     attempt, len(tool_calls), len(content))
         break
 
@@ -315,7 +315,7 @@ def student_revise(
 
     # Extract the inner content of <reflection>...</reflection>. The model is
     # prompted to wrap its persisted self-reflection in these tags; we save
-    # only the inner prose so the SFT-time A_1 reads as natural first-person
+    # only the inner prose so the SFT-time guided reads as natural first-person
     # text (without the model learning a fixed <reflection>...</reflection>
     # output template). The chat-template auto-`<think>` block before the
     # opening tag — which always contains meta-prep ("the user is asking me
@@ -327,12 +327,12 @@ def student_revise(
         logger.info("  [revise] extracted <reflection> inner content (dropped %d chars of wrappers + auto-think)",
                     dropped_n)
     else:
-        logger.warning("  [revise] no <reflection>...</reflection> in A_1 — keeping full content")
+        logger.warning("  [revise] no <reflection>...</reflection> in guided — keeping full content")
 
     # parse_all_tool_calls() returns flat shape {id, name, arguments(dict)}.
     # OpenAI/litellm requires the nested shape on assistant.tool_calls:
     # {id, type:"function", function:{name, arguments: json_str}}. Convert
-    # so this A_1 message can be replayed via initial_history to the API.
+    # so this guided message can be replayed via initial_history to the API.
     api_tool_calls = [
         {
             "id": t["id"],
@@ -352,13 +352,13 @@ def student_revise(
     }, bool(refl_match)
 
 
-# ── A_1 boundary helper ──────────────────────────────────────
+# ── guided boundary helper ──────────────────────────────────────
 
 _SUMMARY_MARKER_RE = re.compile(r"\[summary_id:\s*\d+\]")
-_A1_BOUNDARY_DEFAULT = 2  # right after system + user in a fresh A_0 rollout
+_GUIDED_BOUNDARY_DEFAULT = 2  # right after system + user in a fresh initial rollout
 
 # Character budget for the history slice replayed to student_revise. Replaying
-# the full A_0 history (often 80K+ tokens) put the vLLM agent under enough
+# the full initial history (often 80K+ tokens) put the vLLM agent under enough
 # concurrent KV pressure to crash it; cropping to a fixed char budget keeps the
 # replay cheap while still priming the qwen3_xml tool-call format via the
 # remaining tail of assistant turns.
@@ -383,16 +383,16 @@ def _is_summary_tool(m: dict) -> bool:
 
 def _trim_history_prefix(
     history: list[dict],
-    a0_last_idx: int,
+    init_last_idx: int,
     char_budget: int = _HISTORY_PREFIX_CHAR_BUDGET,
 ) -> list[dict]:
-    """Return a cropped prefix of `history[:a0_last_idx]` for student_revise.
+    """Return a cropped prefix of `history[:init_last_idx]` for student_revise.
 
     Always preserves: index 0 (system), index 1 (user question), and every
-    role="tool" message in [2, a0_last_idx) whose content starts with a
+    role="tool" message in [2, init_last_idx) whose content starts with a
     `[summary_id: N]` marker (compressed-memory tool responses).
 
-    The remaining budget is filled greedily from a0_last_idx-1 walking
+    The remaining budget is filled greedily from init_last_idx-1 walking
     backward, adding whole messages until the next one would exceed budget.
     The tail's leftmost index is snapped forward to the first assistant
     message (so any leading orphan tool message — whose paired assistant has
@@ -402,11 +402,11 @@ def _trim_history_prefix(
     Returned messages keep their original order. Caller is responsible for
     appending the user-side revise instruction after this prefix.
     """
-    if a0_last_idx < 2:
-        return list(history[:a0_last_idx])
+    if init_last_idx < 2:
+        return list(history[:init_last_idx])
 
     fixed: set[int] = {0, 1}
-    for i in range(2, a0_last_idx):
+    for i in range(2, init_last_idx):
         if _is_summary_tool(history[i]):
             fixed.add(i)
 
@@ -414,7 +414,7 @@ def _trim_history_prefix(
     remaining = max(0, char_budget - used)
 
     tail: set[int] = set()
-    i = a0_last_idx - 1
+    i = init_last_idx - 1
     while i >= 2:
         if i in fixed:
             i -= 1
@@ -431,7 +431,7 @@ def _trim_history_prefix(
     if tail:
         # Walk tail's leftmost index forward (it's contiguous by construction).
         start = min(tail)
-        while start < a0_last_idx and history[start].get("role") != "assistant":
+        while start < init_last_idx and history[start].get("role") != "assistant":
             tail.discard(start)
             start += 1
 
@@ -443,10 +443,10 @@ def _find_last_boundary_pos(history: list[dict]) -> int:
     """Position in `history` just after the most recent summary tool_response.
 
     A summary tool_response is identified by the `[summary_id: N]` marker that
-    the runner prepends. Returns _A1_BOUNDARY_DEFAULT if A_0 never compressed.
+    the runner prepends. Returns _GUIDED_BOUNDARY_DEFAULT if initial never compressed.
 
     Used to seed `RunConfig.initial_last_boundary_pos` when handing off the
-    A_1-replaced history to the runner — the runner will pick up A_1's
+    guided-replaced history to the runner — the runner will pick up guided's
     tool_calls (including any manage_context) on turn 0 and use this boundary
     to compute the correct compress range.
     """
@@ -454,7 +454,7 @@ def _find_last_boundary_pos(history: list[dict]) -> int:
     for i, m in enumerate(history):
         if m.get("role") == "tool" and _SUMMARY_MARKER_RE.search(m.get("content") or ""):
             last = i
-    return _A1_BOUNDARY_DEFAULT if last is None else (last + 1)
+    return _GUIDED_BOUNDARY_DEFAULT if last is None else (last + 1)
 
 
 # ── History serialization ──────────────────────────────────
@@ -592,37 +592,37 @@ def run_one(
         logger.info("  [%s] skipping (exists)", qid)
         return
 
-    # ── 1. Identify A_0's failure point (last assistant turn). Keep its content
+    # ── 1. Identify initial's failure point (last assistant turn). Keep its content
     #       verbatim — `Exact Answer:` and what follows show the student the
     #       wrong commitment it made, which is part of what the teacher's
     #       feedback is correcting.
     history = list(traj["history"])
-    a0_last_idx = None
+    init_last_idx = None
     for idx in range(len(history) - 1, -1, -1):
         if history[idx].get("role") == "assistant":
-            a0_last_idx = idx
+            init_last_idx = idx
             break
-    if a0_last_idx is None:
-        logger.error("  [%s] no assistant turn in A_0 history — skipping", qid)
+    if init_last_idx is None:
+        logger.error("  [%s] no assistant turn in initial history — skipping", qid)
         return
 
-    a0_last_asst = dict(history[a0_last_idx])
+    init_last_asst = dict(history[init_last_idx])
 
-    # ── 2. Off-trajectory: have the student rewrite teacher_feedback as A_1
+    # ── 2. Off-trajectory: have the student rewrite teacher_feedback as guided
     #       (1st-person <think> + exactly one tool_call; no coach wording).
     revise_result = student_revise(
         student_client=student_client,
         base_config=base_config,
         question=traj.get("question", ""),
-        a0_last_asst=a0_last_asst,
+        init_last_asst=init_last_asst,
         teacher_feedback=guidance,
     )
     if revise_result is None:
-        logger.error("  [%s] student_revise failed to produce a valid A_1 — skipping", qid)
+        logger.error("  [%s] student_revise failed to produce a valid guided — skipping", qid)
         return
-    a_1, reflection_valid = revise_result
+    guided, reflection_valid = revise_result
 
-    # ── 3. Workspace + carry-over summary files from A_0 (so query_memory
+    # ── 3. Workspace + carry-over summary files from initial (so query_memory
     #       can still reach previous summaries).
     dst_workspace = os.path.join(out_run_dir, "workspace", qid)
     os.makedirs(dst_workspace, exist_ok=True)
@@ -639,23 +639,23 @@ def run_one(
             pass
 
     # ── 4. Build initial_history (live view) and initial_raw_history (full
-    #       archive). new_history just replaces A_0's failure point with A_1;
-    #       A_1's tool_calls are NOT executed here — runner's main loop will
+    #       archive). new_history just replaces initial's failure point with guided;
+    #       guided's tool_calls are NOT executed here — runner's main loop will
     #       resume by executing them on turn 0 (so mc/mem_operations/
     #       tool_call_counts bookkeeping all stays in one place).
-    new_history = history[:a0_last_idx] + [a_1]
-    raw_history_a0 = list(traj.get("raw_history") or history)
-    raw_a0_last_idx = None
-    for idx in range(len(raw_history_a0) - 1, -1, -1):
-        if raw_history_a0[idx].get("role") == "assistant":
-            raw_a0_last_idx = idx
+    new_history = history[:init_last_idx] + [guided]
+    raw_history_init = list(traj.get("raw_history") or history)
+    raw_init_last_idx = None
+    for idx in range(len(raw_history_init) - 1, -1, -1):
+        if raw_history_init[idx].get("role") == "assistant":
+            raw_init_last_idx = idx
             break
-    raw_a0_prefix = raw_history_a0[:raw_a0_last_idx] if raw_a0_last_idx is not None else raw_history_a0
-    new_raw_history = raw_a0_prefix + [a_1]
+    raw_init_prefix = raw_history_init[:raw_init_last_idx] if raw_init_last_idx is not None else raw_history_init
+    new_raw_history = raw_init_prefix + [guided]
 
-    # Boundary for the FIRST mc the runner sees: if A_1 itself is mc, this
+    # Boundary for the FIRST mc the runner sees: if guided itself is mc, this
     # is the right range to compress. Otherwise it just records the
-    # already-existing boundary from A_0.
+    # already-existing boundary from initial.
     initial_boundary = _find_last_boundary_pos(history)
 
     runtime = replace(
@@ -699,10 +699,10 @@ def run_one(
     # both success and crash paths.
     result["teacher_intervention"] = {
         "teacher_feedback": guidance,
-        "a0_failure_turn": a0_last_asst,
-        "a1_rewrite_turn": a_1,
+        "init_failure_turn": init_last_asst,
+        "guided_rewrite_turn": guided,
     }
-    # Flags for downstream SFT filtering: did A_1 emit a parseable <reflection>
+    # Flags for downstream SFT filtering: did guided emit a parseable <reflection>
     # block, and did each manage_context summary parse cleanly? `summary_parse_ok`
     # is plumbed up from runner.run() (per-mc parse-ok flag from `_extract_memory`).
     result["reflection_valid"] = reflection_valid

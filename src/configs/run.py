@@ -34,7 +34,7 @@ class RunConfig:
     # raw history here so hm.raw_messages keeps the full archive.
     initial_raw_history: Optional[list[dict]] = None
     # Caller may set the starting last_boundary_pos and summary_id counter
-    # (e.g. to continue from an A_0 trajectory that already had mc calls).
+    # (e.g. to continue from an initial trajectory that already had mc calls).
     # If None, runner uses defaults: boundary = len(hm.messages), summary_id
     # auto-scanned from workspace + history markers.
     initial_last_boundary_pos: Optional[int] = None

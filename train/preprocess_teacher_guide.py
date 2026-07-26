@@ -1,18 +1,18 @@
-"""Build SFT JSONL for policy p3_5 (v5_teacher_guide).
+"""Build SFT JSONL for the teacher-guided data.
 
-Differs from `p4` (which collapsed — single-action overfit):
+Two data sources are combined:
 
 - main body (~80%):  per-turn samples from EACH correct post-teacher-annotation
-  rollout in `data/v5_teacher_guide_pass@4_correct.json`. For each unique qid,
+  rollout in `data/teacher_guide_pass@4_correct.json`. For each unique qid,
   pick the first correct attempt (iter1 > retry1 > retry2 > retry3). Emit
   (prompt, completion) for every asst turn at raw_history position >= after_id+1
-  — the teacher's mc step onwards. The original failed A_0 prefix
+  — the teacher's mc step onwards. The original failed initial prefix
   (positions 2..after_id) is NOT trained on.
 
-- 20% mix:           per-turn samples from CORRECT A_0 trajectories (those that
+- 20% mix:           per-turn samples from CORRECT initial trajectories (those that
   answered correctly with 2-tool ReAct and did NOT need mc). These supply
   search / get_document / answer supervision and stabilize training. Subsampled
-  to ~20% token share via the existing p3_pc convention.
+  to ~20% token share via the existing token-share subsample convention.
 
 BOTH paths share:
   - history[0] rebuilt as 4-tool system prompt (matches inference).
@@ -21,7 +21,7 @@ BOTH paths share:
   - per-turn prefix reconstructed by replaying `manage_context` compressions in
     raw_history (re-uses `_reconstruct_prefix_at`).
 
-Output: data/sft/v5_teacher_guide-p3_5.jsonl
+Output: data/sft/teacher_guide.jsonl
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ from preprocess_teacher_iter import (
     _subsample_to_token_share,
 )
 
-logger = logging.getLogger("preprocess_v5_p3_5")
+logger = logging.getLogger("preprocess_teacher_guide")
 
 
 ATTEMPT_PRIORITY = ["iter1", "retry1", "retry2", "retry3"]
@@ -122,7 +122,7 @@ def emit_per_turn_samples(
     return samples, skipped
 
 
-def process_v5_trajectories(
+def process_teacher_guide_trajectories(
     *,
     pass4_index: dict,
     sys_prompt_4tool: str,
@@ -134,7 +134,7 @@ def process_v5_trajectories(
     position >= after_id+1.
     """
     picked = pick_one_per_qid(pass4_index["trajectories"])
-    logger.info("v5: %d unique correct qids picked (priority %s)",
+    logger.info("teacher-guided: %d unique correct qids picked (priority %s)",
                 len(picked), ATTEMPT_PRIORITY)
 
     samples: list[dict] = []
@@ -173,7 +173,7 @@ def process_v5_trajectories(
             aggregate_skipped["no_target_turns"] += 1
             continue
 
-        # boundary_0 = 2 (spliced trajs start with [system, user] from A_0).
+        # boundary_0 = 2 (spliced trajs start with [system, user] from initial).
         new_samples, skips = emit_per_turn_samples(
             raw=raw,
             asst_positions=asst_positions,
@@ -181,35 +181,35 @@ def process_v5_trajectories(
             sys_prompt_4tool=sys_prompt_4tool,
             tools_4tool=tools_4tool,
             tokenizer=tokenizer,
-            source_label=f"v5_{entry['attempt']}",
+            source_label=f"teacher_guide_{entry['attempt']}",
             qid=qid,
-            category="v5_teacher_guide_correct",
+            category="teacher_guide_correct",
         )
         samples.extend(new_samples)
         aggregate_skipped.update(skips)
         by_attempt[entry["attempt"]] += 1
 
-    logger.info("v5: emitted %d samples from %d trajs (by attempt: %s)  skipped=%s",
+    logger.info("teacher-guided: emitted %d samples from %d trajs (by attempt: %s)  skipped=%s",
                 len(samples), sum(by_attempt.values()), dict(by_attempt), dict(aggregate_skipped))
     return samples
 
 
-def process_a0_correct(
+def process_init_correct(
     *,
-    a0_dir: Path,
-    a0_eval_dir: Path,
+    init_dir: Path,
+    init_eval_dir: Path,
     sys_prompt_4tool: str,
     tools_4tool: list[dict],
     tokenizer,
 ) -> list[dict]:
-    """Per-turn samples from CORRECT A_0 trajectories. Rebuild history[0] as
+    """Per-turn samples from CORRECT initial trajectories. Rebuild history[0] as
     4-tool system prompt; emit every asst turn from position 2 onwards.
     """
     samples: list[dict] = []
     aggregate_skipped: Counter = Counter()
     n_correct_qids = 0
 
-    for eval_fp in sorted(a0_eval_dir.glob("run_*_eval.json")):
+    for eval_fp in sorted(init_eval_dir.glob("run_*_eval.json")):
         try:
             ed = json.loads(eval_fp.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -217,7 +217,7 @@ def process_a0_correct(
         if not (ed.get("judge_result") or {}).get("correct"):
             continue
         qid = str(ed.get("query_id") or eval_fp.stem.removeprefix("run_").removesuffix("_eval"))
-        traj_fp = a0_dir / f"run_{qid}.json"
+        traj_fp = init_dir / f"run_{qid}.json"
         if not traj_fp.is_file():
             aggregate_skipped["traj_missing"] += 1
             continue
@@ -244,14 +244,14 @@ def process_a0_correct(
             sys_prompt_4tool=sys_prompt_4tool,
             tools_4tool=tools_4tool,
             tokenizer=tokenizer,
-            source_label="a0_correct",
+            source_label="init_correct",
             qid=qid,
-            category="a0_correct_reconstructed",
+            category="init_correct_reconstructed",
         )
         samples.extend(new_samples)
         aggregate_skipped.update(skips)
 
-    logger.info("A_0 correct: emitted %d samples from %d correct trajs  skipped=%s",
+    logger.info("initial correct: emitted %d samples from %d correct trajs  skipped=%s",
                 len(samples), n_correct_qids, dict(aggregate_skipped))
     return samples
 
@@ -275,20 +275,20 @@ def filter_by_token_length(samples: list[dict], tokenizer, max_tokens: int) -> l
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pass4_index", type=Path,
-                    default=REPO / "data/v5_teacher_guide_pass@4_correct.json")
-    ap.add_argument("--a0_dir", type=Path,
-                    default=REPO / "results/browsecomp-plus/qwen3.5-9b-base/rollout-v5_gpt5_teacher-a0/run_all")
-    ap.add_argument("--a0_eval_dir", type=Path,
-                    default=REPO / "results/browsecomp-plus/qwen3.5-9b-base/eval_bcp/rollout-v5_gpt5_teacher-a0/run_all")
+                    default=REPO / "data/teacher_guide_pass@4_correct.json")
+    ap.add_argument("--init_dir", type=Path,
+                    default=REPO / "results/browsecomp-plus/qwen3.5-9b-base/rollout-teacher_guide-init/run_all")
+    ap.add_argument("--init_eval_dir", type=Path,
+                    default=REPO / "results/browsecomp-plus/qwen3.5-9b-base/eval_bcp/rollout-teacher_guide-init/run_all")
     ap.add_argument("--output", type=Path,
-                    default=REPO / "data/sft/v5_teacher_guide-p3_5.jsonl")
+                    default=REPO / "data/sft/teacher_guide.jsonl")
     ap.add_argument("--tokenizer", default="Qwen/Qwen3.5-9B")
     ap.add_argument("--benchmark", default="browsecomp-plus")
     ap.add_argument("--context_window", type=int, default=131072)
     ap.add_argument("--max_tokens", type=int, default=131072,
                     help="Drop samples whose prompt+completion exceed this (0=no filter).")
-    ap.add_argument("--a0_target_share", type=float, default=0.20,
-                    help="Token share of A_0 in final mix (default 0.20).")
+    ap.add_argument("--init_target_share", type=float, default=0.20,
+                    help="Token share of initial in final mix (default 0.20).")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -307,25 +307,25 @@ def main() -> None:
                 pass4["metadata"]["unique_correct_qids"],
                 pass4["metadata"]["total_correct_trajectories"])
 
-    v5_samples = process_v5_trajectories(
+    teacher_guide_samples = process_teacher_guide_trajectories(
         pass4_index=pass4, sys_prompt_4tool=sys_prompt_4tool,
         tools_4tool=tools_4tool, tokenizer=tokenizer,
     )
-    a0_samples = process_a0_correct(
-        a0_dir=args.a0_dir, a0_eval_dir=args.a0_eval_dir,
+    init_samples = process_init_correct(
+        init_dir=args.init_dir, init_eval_dir=args.init_eval_dir,
         sys_prompt_4tool=sys_prompt_4tool, tools_4tool=tools_4tool, tokenizer=tokenizer,
     )
 
-    all_samples = v5_samples + a0_samples
-    logger.info("total before filter/subsample: v5=%d  a0=%d  combined=%d",
-                len(v5_samples), len(a0_samples), len(all_samples))
+    all_samples = teacher_guide_samples + init_samples
+    logger.info("total before filter/subsample: teacher_guide=%d  init=%d  combined=%d",
+                len(teacher_guide_samples), len(init_samples), len(all_samples))
 
     if args.max_tokens > 0:
         all_samples = filter_by_token_length(all_samples, tokenizer, args.max_tokens)
 
-    if args.a0_target_share > 0:
+    if args.init_target_share > 0:
         all_samples = _subsample_to_token_share(
-            all_samples, tokenizer, "a0_correct_reconstructed", args.a0_target_share,
+            all_samples, tokenizer, "init_correct_reconstructed", args.init_target_share,
         )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

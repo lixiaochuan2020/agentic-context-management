@@ -2,14 +2,14 @@
 # Full teacher-guided rollout pipeline on bcp_100.
 #
 # Pipeline:
-#   Phase 1: base Qwen3.5-9B + Qwen3-8B-Embedding + new tools → A_0 on bcp_100
-#   Phase 2: grade A_0 with gpt-5
-#   Phase 3: teacher (gpt-5.5) on wrong A_0 → iter1 rollout
-#   Phase 4: grade iter1
-#   Phase 5: teacher on wrong iter1 → iter2 rollout
-#   Phase 6: grade iter2
+#   Stage 1: base Qwen3.5-9B + Qwen3-8B-Embedding + new tools → initial on bcp_100
+#   Stage 2: grade initial with gpt-5
+#   Stage 3: teacher (gpt-5.5) on wrong initial → iter1 rollout
+#   Stage 4: grade iter1
+#   Stage 5: teacher on wrong iter1 → iter2 rollout
+#   Stage 6: grade iter2
 #
-# All vLLM endpoints stay up across all phases.
+# All vLLM endpoints stay up across all stages.
 # Summarizer + query_memory use the student model itself (self-summarization)
 # via the local agent vLLM endpoint. Teacher + grader are GPT-5.5 / GPT-5.
 
@@ -37,7 +37,7 @@ INDEX_PATH="$BM25_INDEX"
 QWEN3_8B_EMBEDDING_SHARDS_DIR="$EMBED_SHARDS_DIR"
 
 TAG="${TAG:-acm_qwen3_8b_emb_$(date +%Y%m%d)}"
-RUN_DIR_A0="result_${TAG}"
+RUN_DIR_INIT="result_${TAG}"
 RUN_DIR_ITER1="result_${TAG}_iter1"
 RUN_DIR_ITER2="result_${TAG}_iter2"
 RUN_ID="run_all"
@@ -117,53 +117,53 @@ wait_ready "$AGENT_PORT" "agent"
 wait_ready "$EMBED_PORT" "embed"
 
 # ────────────────────────────────────────────────────────────
-# Phase 1: A_0 — base agent on bcp_100
+# Stage 1: initial — base agent on bcp_100
 # ────────────────────────────────────────────────────────────
 echo
-echo "══ Phase 1: A_0 rollout (16 shards on bcp_100) ══"
-A0_PIDS=()
+echo "══ Stage 1: initial rollout (16 shards on bcp_100) ══"
+INIT_PIDS=()
 for ((s=0; s<NUM_SHARDS; s++)); do
     python -m src.run --mode run --benchmark browsecomp-plus --client litellm \
         --model "openai/$AGENT_SERVED" --agent_api_base "$AGENT_API_BASE" \
         --data "$DATA" --index_path "$INDEX_PATH" \
-        --run_dir "$RUN_DIR_A0" --run_id "$RUN_ID" \
+        --run_dir "$RUN_DIR_INIT" --run_id "$RUN_ID" \
         --shard "$s" --num_shards "$NUM_SHARDS" \
         $LIMIT_FLAG \
         --use_memory_tool \
         --summarizer_model "$SUMMARIZER_MODEL" \
         --summarizer_api_base "$SUMMARIZER_API_BASE" \
         --log_level INFO \
-        > "$LOG_DIR/a0_shard_${s}.log" 2>&1 &
-    A0_PIDS+=($!)
+        > "$LOG_DIR/init_shard_${s}.log" 2>&1 &
+    INIT_PIDS+=($!)
 done
-wait "${A0_PIDS[@]}" || echo "[warn] some A_0 shards exited non-zero"
+wait "${INIT_PIDS[@]}" || echo "[warn] some initial shards exited non-zero"
 
-A0_OUT_DIR="results/browsecomp-plus/${AGENT_SERVED}/${RUN_DIR_A0}/${RUN_ID}"
-A0_EVAL_DIR="results/browsecomp-plus/${AGENT_SERVED}/eval_bcp/${RUN_DIR_A0}/${RUN_ID}"
-echo "Phase 1 done. A_0 trajectories: $A0_OUT_DIR"
+INIT_OUT_DIR="results/browsecomp-plus/${AGENT_SERVED}/${RUN_DIR_INIT}/${RUN_ID}"
+INIT_EVAL_DIR="results/browsecomp-plus/${AGENT_SERVED}/eval_bcp/${RUN_DIR_INIT}/${RUN_ID}"
+echo "Stage 1 done. initial trajectories: $INIT_OUT_DIR"
 
 # ────────────────────────────────────────────────────────────
-# Phase 2: grade A_0
+# Stage 2: grade initial
 # ────────────────────────────────────────────────────────────
 echo
-echo "══ Phase 2: grade A_0 ══"
-python scripts/grade_bcp_gpt5.py --input_dir "$A0_OUT_DIR" --eval_dir "$A0_EVAL_DIR" \
+echo "══ Stage 2: grade initial ══"
+python scripts/grade_bcp_gpt5.py --input_dir "$INIT_OUT_DIR" --eval_dir "$INIT_EVAL_DIR" \
     --model "$GRADER_MODEL" --workers 16 \
-    2>&1 | tee "$LOG_DIR/grade_a0.log"
+    2>&1 | tee "$LOG_DIR/grade_init.log"
 
 # ────────────────────────────────────────────────────────────
-# Phase 3: iter1 — teacher on wrong A_0
+# Stage 3: iter1 — teacher on wrong initial
 # ────────────────────────────────────────────────────────────
 echo
-echo "══ Phase 3: iter1 (teacher-guided continuation on wrong A_0) ══"
+echo "══ Stage 3: iter1 (teacher-guided continuation on wrong initial) ══"
 ITER1_OUT_DIR="results/browsecomp-plus/${AGENT_SERVED}/${RUN_DIR_ITER1}/${RUN_ID}"
 python -m src.teacher_guided_rollout \
-    --run_dir "$A0_OUT_DIR" --eval_dir "$A0_EVAL_DIR" \
+    --run_dir "$INIT_OUT_DIR" --eval_dir "$INIT_EVAL_DIR" \
     --out_run_dir "$ITER1_OUT_DIR" \
     --teacher_model "$ANNOT_MODEL" \
     --student_model "openai/$AGENT_SERVED" \
     --index_path "$INDEX_PATH" \
-    --src_workspace_root "$A0_OUT_DIR/workspace" \
+    --src_workspace_root "$INIT_OUT_DIR/workspace" \
     --summarizer_model "$SUMMARIZER_MODEL" \
     --summarizer_api_base "$SUMMARIZER_API_BASE" \
     $LIMIT_FLAG \
@@ -171,21 +171,21 @@ python -m src.teacher_guided_rollout \
     2>&1 | tee "$LOG_DIR/iter1.log"
 
 # ────────────────────────────────────────────────────────────
-# Phase 4: grade iter1 (skip if no iter1 outputs)
+# Stage 4: grade iter1 (skip if no iter1 outputs)
 # ────────────────────────────────────────────────────────────
 ITER1_EVAL_DIR="results/browsecomp-plus/${AGENT_SERVED}/eval_bcp/${RUN_DIR_ITER1}/${RUN_ID}"
 if compgen -G "$ITER1_OUT_DIR/run_*.json" > /dev/null; then
     echo
-    echo "══ Phase 4: grade iter1 ══"
+    echo "══ Stage 4: grade iter1 ══"
     python scripts/grade_bcp_gpt5.py --input_dir "$ITER1_OUT_DIR" --eval_dir "$ITER1_EVAL_DIR" \
         --model "$GRADER_MODEL" --workers 16 \
         2>&1 | tee "$LOG_DIR/grade_iter1.log"
 
     # ────────────────────────────────────────────────────────────
-    # Phase 5: iter2 — teacher on wrong iter1
+    # Stage 5: iter2 — teacher on wrong iter1
     # ────────────────────────────────────────────────────────────
     echo
-    echo "══ Phase 5: iter2 (teacher on wrong iter1) ══"
+    echo "══ Stage 5: iter2 (teacher on wrong iter1) ══"
     ITER2_OUT_DIR="results/browsecomp-plus/${AGENT_SERVED}/${RUN_DIR_ITER2}/${RUN_ID}"
     python -m src.teacher_guided_rollout \
         --run_dir "$ITER1_OUT_DIR" --eval_dir "$ITER1_EVAL_DIR" \
@@ -201,25 +201,25 @@ if compgen -G "$ITER1_OUT_DIR/run_*.json" > /dev/null; then
         2>&1 | tee "$LOG_DIR/iter2.log"
 
     # ────────────────────────────────────────────────────────────
-    # Phase 6: grade iter2 (skip if no iter2 outputs)
+    # Stage 6: grade iter2 (skip if no iter2 outputs)
     # ────────────────────────────────────────────────────────────
     if compgen -G "$ITER2_OUT_DIR/run_*.json" > /dev/null; then
         echo
-        echo "══ Phase 6: grade iter2 ══"
+        echo "══ Stage 6: grade iter2 ══"
         ITER2_EVAL_DIR="results/browsecomp-plus/${AGENT_SERVED}/eval_bcp/${RUN_DIR_ITER2}/${RUN_ID}"
         python scripts/grade_bcp_gpt5.py --input_dir "$ITER2_OUT_DIR" --eval_dir "$ITER2_EVAL_DIR" \
             --model "$GRADER_MODEL" --workers 16 \
             2>&1 | tee "$LOG_DIR/grade_iter2.log"
     else
-        echo "── iter2 produced no trajectories — skipping Phase 6 ──"
+        echo "── iter2 produced no trajectories — skipping Stage 6 ──"
     fi
 else
-    echo "── iter1 produced no trajectories (A_0 had no wrong questions) — skipping Phases 4-6 ──"
+    echo "── iter1 produced no trajectories (initial had no wrong questions) — skipping Stages 4-6 ──"
 fi
 
 echo
-echo "══ All phases done ══"
-echo "A_0    : $A0_OUT_DIR"
+echo "══ All stages done ══"
+echo "initial    : $INIT_OUT_DIR"
 echo "iter1  : $ITER1_OUT_DIR"
 echo "iter2  : $ITER2_OUT_DIR"
 echo "log dir: $LOG_DIR"

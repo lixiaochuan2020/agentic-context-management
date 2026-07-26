@@ -1,14 +1,14 @@
 """CLI for resuming student rollouts from teacher annotations.
 
 For each `mc`-decision annotation:
-  1. load original ReAct A_0 trajectory
+  1. load original ReAct initial trajectory
   2. splice: keep `history[:after_id+1]`, swap system prompt to 4-tool,
      append synthetic asst turn (teacher think + manage_context call)
   3. call `src.runner.run` with the spliced initial_history; runner executes
      the mc on turn 0 (summarizer produces the compression), then resumes the
      student rollout with 4 tools available
 
-This is an exploratory validation step — measures how many wrong-A_0 trajs
+This is an exploratory validation step — measures how many wrong-initial trajs
 become correct after teacher's mc intervention. Output trajectories can later
 be graded with `scripts/grade_bcp_gpt5.py`.
 """
@@ -54,7 +54,7 @@ def main() -> None:
     ap.add_argument("--annotations_dir", required=True, type=Path,
                     help="Dir of run_<qid>.json teacher annotations.")
     ap.add_argument("--rollouts_dir", required=True, type=Path,
-                    help="ReAct A_0 rollout dir containing run_<qid>.json.")
+                    help="ReAct initial rollout dir containing run_<qid>.json.")
     ap.add_argument("--out_dir", required=True, type=Path,
                     help="Where to write resumed-rollout trajectories.")
     ap.add_argument("--config", default="configs/default.yaml",
@@ -213,7 +213,7 @@ def main() -> None:
 
         elapsed = round(time.time() - t0, 1)
         result["elapsed_sec"] = elapsed
-        result["teacher_intervention_v5"] = spliced["teacher_annotation"]
+        result["teacher_intervention"] = spliced["teacher_annotation"]
         out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         if cache_path.exists():
             try: cache_path.unlink()

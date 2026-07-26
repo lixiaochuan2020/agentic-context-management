@@ -466,7 +466,7 @@ def compress_messages(
     Returns None if the range is empty (nothing to compress).
 
     Shared by runner._handle_manage_context (live mc during rollout) and
-    teacher_guided_rollout._execute_a1_action (mc inside an off-trajectory A_1).
+    teacher_guided_rollout._execute_guided_action (mc inside an off-trajectory guided turn).
     """
     if start_pos >= end_pos:
         return None
@@ -948,7 +948,7 @@ def run(client: BaseClient, question: str, config: RunConfig,
     for turn in range(max_iter):
         # Resume path: on turn 0, if initial_history ended with an assistant
         # message that carries unexecuted tool_calls (e.g. teacher-guided
-        # iter rollout hands off A_1 this way), use those tool_calls as if
+        # iter rollout hands off the guided turn this way), use those tool_calls as if
         # we'd just generated them — no client.generate() call. The assistant
         # is already in hm.messages so we don't re-add it.
         resume_pending = (

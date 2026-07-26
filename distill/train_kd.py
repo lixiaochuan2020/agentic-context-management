@@ -1,4 +1,4 @@
-"""Offline on-policy distillation — Phase 2: KD-train the 9B student from cached teacher logprobs.
+"""Offline on-policy distillation — Stage 2: KD-train the 9B student from cached teacher logprobs.
 
 Consumes the .npz produced by distill/score_teacher_logprobs.py (input_ids, asst_pos, tk_ids,
 tk_logprobs) and trains the student with top-K forward-KL at assistant positions only.

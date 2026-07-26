@@ -1,13 +1,13 @@
-"""Splice a teacher annotation into a ReAct A_0 trajectory.
+"""Splice a teacher annotation into a ReAct initial trajectory.
 
 Produces an `initial_history` (and aligned `initial_raw_history`) suitable for
 `src.runner.run(..., config.initial_history=...)`. The student then resumes
 from the synthetic teacher-authored mc/qm turn.
 
 Design constraints (see experiments/20260517.md § Exp2):
-  - Input A_0 is ReAct (2-tool); we swap `history[0]` to the 4-tool system
+  - Input initial is ReAct (2-tool); we swap `history[0]` to the 4-tool system
     prompt so the resumed student has the mc/qm strategy guidance.
-  - `initial_raw_history = initial_history` (decision d1: A_0 was uncompressed,
+  - `initial_raw_history = initial_history` (decision d1: initial was uncompressed,
     so the raw archive and live view are identical at splice time).
   - `initial_last_boundary_pos = 2` (system + user before any mc).
   - `initial_summary_id = 0` (no summaries yet — runner will produce id=1 when
@@ -74,7 +74,7 @@ def splice_annotation_to_initial_history(
     think = annotation.get("think") or ""
 
     # Rebuild history[0] as 4-tool system prompt so the resumed student has the
-    # mc/qm strategy section. A_0 ran as 2-tool ReAct, so its system prompt
+    # mc/qm strategy section. initial ran as 2-tool ReAct, so its system prompt
     # lacked _MEMORY_MANAGEMENT_STRATEGY.
     new_system = {
         "role": "system",

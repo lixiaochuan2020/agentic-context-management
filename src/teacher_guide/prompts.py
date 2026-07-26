@@ -1,4 +1,4 @@
-"""Teacher annotation prompt for the v5_gpt5_teacher pipeline.
+"""Teacher annotation prompt for the teacher-guided pipeline.
 
 The teacher's only job is to identify the EARLIEST point in a ReAct trajectory
 where the student should have invoked `manage_context` (mc) or `query_memory`

@@ -1,11 +1,11 @@
-"""Phase 1 of offline on-policy distillation: score student trajectories with the teacher.
+"""Stage 1 of offline on-policy distillation: score student trajectories with the teacher.
 
 Pipeline: take the base-9B MemTool rollouts on bcp_train_680, keep the *harder* subset
 (questions NOT solved 4/4 — incl. the 0/4 fails, where the teacher adds the most signal),
 re-render each trajectory with the SAME renderer the SFT data uses (emit_messages_sample),
 tokenize once with the assistant-token mask, and ask the teacher's vLLM `prompt_logprobs`
 for its top-K distribution at every assistant position. We cache the *fully tokenized*
-example + teacher top-K so Phase-2 training consumes it directly (no re-tokenization →
+example + teacher top-K so Stage-2 training consumes it directly (no re-tokenization →
 teacher/student token positions stay aligned by construction).
 
 Teacher must already be serving (see scripts/serve_teacher_397b.sh) with prompt_logprobs.
@@ -16,7 +16,7 @@ Output: one .npz per trajectory at <out_dir>/<qid>_run<rep>.npz with
   tk_ids      int32[M, K]       teacher top-K token ids at each asst position
   tk_logprobs float16[M, K]     teacher top-K logprobs (natural log)
 Alignment note: tk_*[m] is the teacher distribution *for* token input_ids[asst_pos[m]]
-(i.e. vLLM prompt_logprobs[i]); Phase-2 supervises student logits[i-1] against it.
+(i.e. vLLM prompt_logprobs[i]); Stage-2 supervises student logits[i-1] against it.
 
 Run (teacher serving locally on :8900):
   python -m distill.score_teacher_logprobs \
@@ -42,7 +42,7 @@ from transformers import AutoTokenizer
 
 from src.prompts import build_system_prompt
 from src.tools import get_tools
-from train.build_react_a0_sft import emit_messages_sample
+from train.build_react_sft import emit_messages_sample
 from train.chat_masking import chatml_consts, assistant_positions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -109,7 +109,7 @@ def main() -> None:
     ap.add_argument("--benchmark", default="browsecomp-plus")
     ap.add_argument("--context_window", type=int, default=131072)
     ap.add_argument("--max_tokens", type=int, default=262144,
-                    help="drop trajectories longer than this (256K matches the v7_2/v1.06 SFT build "
+                    help="drop trajectories longer than this (256K matches the long-context SFT build "
                          "and the teacher's 262144 max_position_embeddings)")
     ap.add_argument("--teacher_api_base", required=True)
     ap.add_argument("--teacher_model", required=True)

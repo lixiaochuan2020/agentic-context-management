@@ -5,19 +5,19 @@ Two output formats are supported via --format:
   --format messages
     One JSON line per trajectory: {"messages": [...]}.
     Use with TRL SFTConfig(assistant_only_loss=True) — every assistant turn
-    contributes loss. Suitable when you want full-trajectory training of A_0
+    contributes loss. Suitable when you want full-trajectory training of initial
     deep-research examples.
 
-  --format prompt-completion  (policy1)
+  --format prompt-completion
     One JSON line per ASSISTANT TURN TO TRAIN: {"prompt": str, "completion": str}.
     Use with TRL SFTConfig in prompt-completion mode (completion-only loss).
     Only the completion tokens contribute loss; the prompt is pure context.
 
-policy1 specifics (--format prompt-completion):
-  - iter1/iter2 only (--a0_dir omitted): A_0 supplement disabled
+prompt-completion specifics:
+  - iter1/iter2 only (--init_dir omitted): initial supplement disabled
   - For each correct iter trajectory: emit ONE sample per assistant turn from
-    A_1 through the final answer turn
-  - For each wrong iter trajectory: emit exactly ONE sample (A_1 only); the
+    guided through the final answer turn
+  - For each wrong iter trajectory: emit exactly ONE sample (guided only); the
     wrong continuation is dropped
   - prompt = chat_template(traj[:target_idx], add_generation_prompt=True)
   - completion = chat_template(traj[:target_idx+1], add_generation_prompt=False)
@@ -87,14 +87,14 @@ def _load_eval_correct_map(eval_path: Path) -> dict[str, bool]:
     return {str(q["id"]): q["correct"] for q in d["per_question"]}
 
 
-def process_a0_prompt_completion_reconstructed(
+def process_init_prompt_completion_reconstructed(
     dir_path: Path, eval_path: Path, tokenizer
 ) -> list[dict]:
-    """p3 A_0 path: correct A_0 only, all asst turns, per-turn prompt reconstructed.
+    """initial path: correct initial only, all asst turns, per-turn prompt reconstructed.
 
-    A_0 is a fresh rollout (no initial_history pinned), so boundary_0 = 2
+    initial is a fresh rollout (no initial_history pinned), so boundary_0 = 2
     (right after system + user). All asst turns are emitted as separate
-    samples (no A_1 cutoff).
+    samples (no guided cutoff).
     """
     correct_map = _load_eval_correct_map(eval_path)
     samples = []
@@ -118,7 +118,7 @@ def process_a0_prompt_completion_reconstructed(
         if len(raw) < 3:
             skipped["broken"] += 1
             continue
-        # A_0 fresh rollout: system+user are positions 0,1; boundary_0 = 2.
+        # initial fresh rollout: system+user are positions 0,1; boundary_0 = 2.
         boundary_0 = 2
         raw_norm = _normalize_messages(raw)
         asst_pos = [i for i, m in enumerate(raw_norm) if m.get("role") == "assistant"]
@@ -148,11 +148,11 @@ def process_a0_prompt_completion_reconstructed(
             samples.append({
                 "prompt": prompt_text,
                 "completion": completion,
-                "source": f"a0/{fp.name}#asst@{ti}",
-                "category": "a0_correct_reconstructed",
+                "source": f"init/{fp.name}#asst@{ti}",
+                "category": "init_correct_reconstructed",
                 "qid": qid,
             })
-    logger.info("A_0 reconstructed %s: emitted %d samples from %d correct trajectories; skipped %s",
+    logger.info("initial reconstructed %s: emitted %d samples from %d correct trajectories; skipped %s",
                 dir_path, len(samples), n_trajs, skipped)
     return samples
 
@@ -223,8 +223,8 @@ def _asst_indices(history: list[dict]) -> list[int]:
     return [i for i, m in enumerate(history) if m.get("role") == "assistant"]
 
 
-def _find_a1_index(history: list[dict], num_turns: int) -> int | None:
-    """A_1 = last assistant message before the runner-generated `num_turns` turns."""
+def _find_guided_index(history: list[dict], num_turns: int) -> int | None:
+    """guided = last assistant message before the runner-generated `num_turns` turns."""
     ai = _asst_indices(history)
     if num_turns >= len(ai):
         return None
@@ -235,7 +235,7 @@ def _find_a1_index(history: list[dict], num_turns: int) -> int | None:
 # Format: messages (full trajectory, assistant_only_loss=True)
 # ─────────────────────────────────────────────────────────────────────────
 
-def process_a0_messages(dir_path: Path, eval_path: Path, turn_threshold: int) -> list[dict]:
+def process_init_messages(dir_path: Path, eval_path: Path, turn_threshold: int) -> list[dict]:
     correct_map = _load_eval_correct_map(eval_path)
     samples = []
     skipped = {"not_correct": 0, "short": 0, "broken": 0}
@@ -259,17 +259,17 @@ def process_a0_messages(dir_path: Path, eval_path: Path, turn_threshold: int) ->
             continue
         samples.append({
             "messages": msgs,
-            "source": f"A_0/{fp.name}",
-            "category": "a0_correct_deep",
+            "source": f"init/{fp.name}",
+            "category": "init_correct_deep",
         })
-    logger.info("A_0 messages %s: kept %d  (skipped: %s)", dir_path, len(samples), skipped)
+    logger.info("initial messages %s: kept %d  (skipped: %s)", dir_path, len(samples), skipped)
     return samples
 
 
 def process_iter_messages(dir_path: Path, eval_path: Path, stage_label: str) -> list[dict]:
     correct_map = _load_eval_correct_map(eval_path)
     samples = []
-    skipped = {"no_grade": 0, "a1_not_found": 0, "broken": 0}
+    skipped = {"no_grade": 0, "guided_not_found": 0, "broken": 0}
     n_correct = n_wrong = 0
     for fp in sorted(dir_path.glob("run_*.json")):
         try:
@@ -289,13 +289,13 @@ def process_iter_messages(dir_path: Path, eval_path: Path, stage_label: str) -> 
             category = f"{stage_label}_correct"
             n_correct += 1
         else:
-            a1_idx = _find_a1_index(history, num_turns)
-            if a1_idx is None:
-                skipped["a1_not_found"] += 1
+            guided_idx = _find_guided_index(history, num_turns)
+            if guided_idx is None:
+                skipped["guided_not_found"] += 1
                 continue
-            truncated = history[: a1_idx + 1]
+            truncated = history[: guided_idx + 1]
             msgs = _trim_trailing_non_assistant(_normalize_messages(truncated))
-            category = f"{stage_label}_wrong_truncated_at_a1"
+            category = f"{stage_label}_wrong_truncated_at_guided"
             n_wrong += 1
         if not msgs:
             skipped["broken"] += 1
@@ -307,7 +307,7 @@ def process_iter_messages(dir_path: Path, eval_path: Path, stage_label: str) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Reconstruction helpers (p2_pc): build per-turn prompt from raw_history
+# Reconstruction helpers: build per-turn prompt from raw_history
 # by replaying each manage_context compress as it fired during rollout.
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -351,8 +351,8 @@ def _reconstruct_prefix_at(raw: list[dict], target_raw_idx: int, boundary_0: int
     return working
 
 
-def _find_a1_in_raw(raw: list[dict], num_turns: int) -> tuple[int, int] | None:
-    """Return (i_a1, boundary_0) using raw_history + runner-generated num_turns.
+def _find_guided_in_raw(raw: list[dict], num_turns: int) -> tuple[int, int] | None:
+    """Return (i_guided, boundary_0) using raw_history + runner-generated num_turns.
 
     Returns None if num_turns is inconsistent with raw_history asst counts.
     """
@@ -360,21 +360,21 @@ def _find_a1_in_raw(raw: list[dict], num_turns: int) -> tuple[int, int] | None:
     if num_turns >= len(asst_pos):
         return None
     initial_asst_count = len(asst_pos) - num_turns
-    i_a1 = asst_pos[initial_asst_count - 1]
+    i_guided = asst_pos[initial_asst_count - 1]
     if initial_asst_count < len(asst_pos):
-        boundary_0 = asst_pos[initial_asst_count]  # position of A_2 (or first runner-gen asst)
+        boundary_0 = asst_pos[initial_asst_count]  # position of the first runner-generated asst
     else:
         boundary_0 = len(raw)
-    return i_a1, boundary_0
+    return i_guided, boundary_0
 
 
 def process_iter_prompt_completion_reconstructed(
     dir_path: Path, eval_path: Path, stage_label: str, tokenizer
 ) -> list[dict]:
-    """p2_pc: correct iter only, per-turn prompt reconstructed from raw_history."""
+    """correct iter only, per-turn prompt reconstructed from raw_history."""
     correct_map = _load_eval_correct_map(eval_path)
     samples = []
-    skipped = {"no_grade": 0, "not_correct": 0, "a1_not_found": 0, "broken": 0, "render_fail": 0}
+    skipped = {"no_grade": 0, "not_correct": 0, "guided_not_found": 0, "broken": 0, "render_fail": 0}
     n_correct_trajs = 0
     for fp in sorted(dir_path.glob("run_*.json")):
         try:
@@ -392,17 +392,17 @@ def process_iter_prompt_completion_reconstructed(
             continue
         raw = d.get("raw_history") or []
         num_turns = d.get("num_turns", 0)
-        found = _find_a1_in_raw(raw, num_turns)
+        found = _find_guided_in_raw(raw, num_turns)
         if found is None:
-            skipped["a1_not_found"] += 1
+            skipped["guided_not_found"] += 1
             continue
-        i_a1, boundary_0 = found
+        i_guided, boundary_0 = found
 
         raw_norm = _normalize_messages(raw)
 
-        # Targets: every asst turn from A_1 through end of raw.
+        # Targets: every asst turn from guided through end of raw.
         asst_pos = [i for i, m in enumerate(raw_norm) if m.get("role") == "assistant"]
-        target_indices = [i for i in asst_pos if i >= i_a1]
+        target_indices = [i for i in asst_pos if i >= i_guided]
         n_correct_trajs += 1
 
         for ti in target_indices:
@@ -435,7 +435,7 @@ def process_iter_prompt_completion_reconstructed(
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Format: prompt-completion (policy1)
+# Format: prompt-completion
 # ─────────────────────────────────────────────────────────────────────────
 
 def _emit_prompt_completion(tokenizer, full_msgs: list[dict], target_idx: int) -> tuple[str, str] | None:
@@ -463,7 +463,7 @@ def _emit_prompt_completion(tokenizer, full_msgs: list[dict], target_idx: int) -
 def process_iter_prompt_completion(dir_path: Path, eval_path: Path, stage_label: str, tokenizer) -> list[dict]:
     correct_map = _load_eval_correct_map(eval_path)
     samples = []
-    skipped = {"no_grade": 0, "a1_not_found": 0, "broken": 0, "render_fail": 0}
+    skipped = {"no_grade": 0, "guided_not_found": 0, "broken": 0, "render_fail": 0}
     n_correct_trajs = n_wrong_trajs = 0
     for fp in sorted(dir_path.glob("run_*.json")):
         try:
@@ -478,9 +478,9 @@ def process_iter_prompt_completion(dir_path: Path, eval_path: Path, stage_label:
             continue
         history = d.get("history") or []
         num_turns = d.get("num_turns", 0)
-        a1_idx = _find_a1_index(history, num_turns)
-        if a1_idx is None:
-            skipped["a1_not_found"] += 1
+        guided_idx = _find_guided_index(history, num_turns)
+        if guided_idx is None:
+            skipped["guided_not_found"] += 1
             continue
 
         norm_hist = _normalize_messages(history)
@@ -488,15 +488,15 @@ def process_iter_prompt_completion(dir_path: Path, eval_path: Path, stage_label:
         # Build list of TARGET asst indices to emit.
         asst_idx_all = _asst_indices(norm_hist)
         if is_correct:
-            # All asst turns from A_1 through end.
-            target_indices = [i for i in asst_idx_all if i >= a1_idx]
+            # All asst turns from guided through end.
+            target_indices = [i for i in asst_idx_all if i >= guided_idx]
             n_correct_trajs += 1
             cat = f"{stage_label}_correct"
         else:
-            # Only A_1.
-            target_indices = [a1_idx]
+            # Only guided.
+            target_indices = [guided_idx]
             n_wrong_trajs += 1
-            cat = f"{stage_label}_wrong_a1_only"
+            cat = f"{stage_label}_wrong_guided_only"
 
         for ti in target_indices:
             pc = _emit_prompt_completion(tokenizer, norm_hist, ti)
@@ -549,13 +549,13 @@ def _filter_by_token_length(samples: list[dict], tokenizer, max_tokens: int) -> 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--format", choices=["messages", "prompt-completion"], required=True,
-                    help="Output format. policy1 uses 'prompt-completion'.")
-    ap.add_argument("--a0_dir", type=Path, default=None,
-                    help="A_0 run_all dir (optional, supplementary). Disabled for policy1.")
-    ap.add_argument("--a0_eval", type=Path, default=None,
-                    help="A_0's gpt5_eval.json. Defaults to <a0_dir>/gpt5_eval.json.")
+                    help="Output format.")
+    ap.add_argument("--init_dir", type=Path, default=None,
+                    help="initial run_all dir (optional, supplementary).")
+    ap.add_argument("--init_eval", type=Path, default=None,
+                    help="initial's gpt5_eval.json. Defaults to <init_dir>/gpt5_eval.json.")
     ap.add_argument("--turn_threshold", type=int, default=16,
-                    help="A_0 correct turns>=this. Default 16. Only used with --a0_dir.")
+                    help="initial correct turns>=this. Default 16. Only used with --init_dir.")
     ap.add_argument("--iter_dirs", nargs="+", type=Path, default=[],
                     help="One or more iter run_all directories.")
     ap.add_argument("--output", required=True, type=Path, help="Output JSONL path.")
@@ -564,12 +564,12 @@ def main() -> None:
     ap.add_argument("--tokenizer", type=str, required=True,
                     help="HF tokenizer path (needed for chat-template rendering / filter).")
     ap.add_argument("--reconstruct_context", action="store_true",
-                    help="p2_pc: correct iter only; per-turn prompt rebuilt from raw_history "
+                    help="correct iter only; per-turn prompt rebuilt from raw_history "
                          "(replays compress ops). Requires --format prompt-completion.")
-    ap.add_argument("--a0_target_share", type=float, default=0.0,
-                    help="p3: target A_0 token share in final mix (e.g. 0.2 = 20%). "
-                         "Drop whole A_0 trajectories (largest-first) until share <= target. "
-                         "Requires --a0_dir + --reconstruct_context.")
+    ap.add_argument("--init_target_share", type=float, default=0.0,
+                    help="target initial token share in final mix (e.g. 0.2 = 20%). "
+                         "Drop whole initial trajectories (largest-first) until share <= target. "
+                         "Requires --init_dir + --reconstruct_context.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -579,17 +579,17 @@ def main() -> None:
 
     samples: list[dict] = []
 
-    if args.a0_dir is not None and args.format == "messages":
-        a0_dir = args.a0_dir.expanduser().resolve()
-        a0_eval = (args.a0_eval or a0_dir / "gpt5_eval.json").expanduser().resolve()
-        samples.extend(process_a0_messages(a0_dir, a0_eval, args.turn_threshold))
-    elif args.a0_dir is not None and args.format == "prompt-completion":
+    if args.init_dir is not None and args.format == "messages":
+        init_dir = args.init_dir.expanduser().resolve()
+        init_eval = (args.init_eval or init_dir / "gpt5_eval.json").expanduser().resolve()
+        samples.extend(process_init_messages(init_dir, init_eval, args.turn_threshold))
+    elif args.init_dir is not None and args.format == "prompt-completion":
         if not args.reconstruct_context:
-            logger.warning("--a0_dir + prompt-completion ignored (needs --reconstruct_context).")
+            logger.warning("--init_dir + prompt-completion ignored (needs --reconstruct_context).")
         else:
-            a0_dir = args.a0_dir.expanduser().resolve()
-            a0_eval = (args.a0_eval or a0_dir / "gpt5_eval.json").expanduser().resolve()
-            samples.extend(process_a0_prompt_completion_reconstructed(a0_dir, a0_eval, tokenizer))
+            init_dir = args.init_dir.expanduser().resolve()
+            init_eval = (args.init_eval or init_dir / "gpt5_eval.json").expanduser().resolve()
+            samples.extend(process_init_prompt_completion_reconstructed(init_dir, init_eval, tokenizer))
 
     if args.reconstruct_context and args.format != "prompt-completion":
         ap.error("--reconstruct_context requires --format prompt-completion")
@@ -613,9 +613,9 @@ def main() -> None:
     if args.max_tokens > 0:
         samples = _filter_by_token_length(samples, tokenizer, args.max_tokens)
 
-    if args.a0_target_share > 0:
+    if args.init_target_share > 0:
         samples = _subsample_to_token_share(
-            samples, tokenizer, "a0_correct_reconstructed", args.a0_target_share)
+            samples, tokenizer, "init_correct_reconstructed", args.init_target_share)
 
     logger.info("final samples: %d", len(samples))
     args.output.parent.mkdir(parents=True, exist_ok=True)

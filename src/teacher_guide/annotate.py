@@ -1,6 +1,6 @@
-"""Teacher annotation step for the v5_gpt5_teacher pipeline.
+"""Teacher annotation step for the teacher-guided pipeline.
 
-Given a ReAct A_0 trajectory that the student failed on, call GPT-5 to emit
+Given a ReAct initial trajectory that the student failed on, call GPT-5 to emit
 one structured annotation: where in the trajectory should `manage_context` or
 `query_memory` have been invoked, and the first-person rationale.
 

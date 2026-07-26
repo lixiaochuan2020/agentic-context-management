@@ -58,7 +58,7 @@ CKPT_DIR="${CKPT_DIR:-/scratch/$USER/checkpoints}"                 # trained + m
 LOGPROBS_DIR="${LOGPROBS_DIR:-/scratch/$USER/distill/teacher_logprobs}"  # cached teacher npz
 
 # ── Teacher-annotation + grading LLMs (OpenAI-compatible endpoints) ────────────
-TEACHER_ANNOT_MODEL="${TEACHER_ANNOT_MODEL:-gpt-5}"                 # annotates failed A_0 trajectories
+TEACHER_ANNOT_MODEL="${TEACHER_ANNOT_MODEL:-gpt-5}"                 # annotates failed initial trajectories
 TEACHER_ANNOT_API_BASE="${TEACHER_ANNOT_API_BASE:-https://api.openai.com/v1}"
 GRADER_MODEL="${GRADER_MODEL:-gpt-5}"                               # BCP answer judge
 

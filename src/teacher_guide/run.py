@@ -1,18 +1,18 @@
-"""CLI for the v5_gpt5_teacher annotation step.
+"""CLI for the teacher-guided annotation step.
 
-Walks a ReAct A_0 rollout dir, loads grade results (optional), picks every
+Walks a ReAct initial rollout dir, loads grade results (optional), picks every
 trajectory that did NOT reach a correct answer (wrong-with-answer OR
 no-final-answer cases), calls the teacher for one annotation per qid, and
 writes the results into `src/teacher_guide/results/<tag>/annotations/`.
 
-Step 0 (running the A_0 rollout) and Step 2+ (preprocess → SFT) are separate.
+Step 0 (running the initial rollout) and Step 2+ (preprocess → SFT) are separate.
 
 Example
 -------
     python -m src.teacher_guide.run \\
-        --run_dir results/browsecomp-plus/qwen3.5-9b-base/rollout-v5_gpt5_teacher-a0/run_all \\
-        --eval_dir results/browsecomp-plus/qwen3.5-9b-base/grade_bcp/rollout-v5_gpt5_teacher-a0/run_all \\
-        --out_dir  src/teacher_guide/results/v5_gpt5_teacher/annotations \\
+        --run_dir results/browsecomp-plus/qwen3.5-9b-base/rollout-teacher_guide-init/run_all \\
+        --eval_dir results/browsecomp-plus/qwen3.5-9b-base/grade_bcp/rollout-teacher_guide-init/run_all \\
+        --out_dir  src/teacher_guide/results/teacher_guide/annotations \\
         --teacher_model gpt-5 \\
         --max_workers 4 --limit 20
 """
@@ -110,7 +110,7 @@ def load_wrong_trajectories(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run_dir", required=True, type=Path,
-                    help="ReAct A_0 rollout dir containing run_<qid>.json files.")
+                    help="ReAct initial rollout dir containing run_<qid>.json files.")
     ap.add_argument("--eval_dir", default=None, type=Path,
                     help="Grade output dir (run_<qid>_eval.json). Optional — without it, only "
                          "no-final-answer cases are picked up; completed runs are treated as correct.")

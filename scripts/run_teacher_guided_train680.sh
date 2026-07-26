@@ -7,9 +7,9 @@
 # the two GPU-heavy stages so the policy can be re-served under a different tool
 # schema.
 #
-#   Stage 1  A_0 rollout   — base 9B in pure 2-tool ReAct (search + get_document,
+#   Stage 1  initial rollout   — base 9B in pure 2-tool ReAct (search + get_document,
 #                            NO memory tools) on the train pool, then GPT-5 grade.
-#   Stage 2  teacher annotate — GPT-5 annotates the FAILED A_0 trajectories
+#   Stage 2  teacher annotate — GPT-5 annotates the FAILED initial trajectories
 #                            (fixes the wrong reasoning). CPU / API only, no GPU.
 #   Stage 3  resume        — student replays each annotation under the 4-tool
 #                            MemTool schema (manage_context call message dropped
@@ -48,7 +48,7 @@ fi
 
 POLICY_PORTS=(); for ((i=0; i<N_GPUS; i++)); do POLICY_PORTS+=($((8001 + i))); done
 
-A0_TAG="a0-react"
+INIT_TAG="init-react"
 RESUME_TAG="resume-teacher-guided"
 ANNOT_DIR="src/teacher_guide/results/teacher-guided/annotations"
 POLICY_ROOT="$RESULTS_DIR/browsecomp-plus/$SERVED_POLICY"
@@ -98,32 +98,32 @@ cleanup(){ free_gpus >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 # ══════════════════════════════════════════════════════════════════════════════
-echo "════ STAGE 1: A_0 rollout (base 9B, pure ReAct, ${MAX_MODEL_LEN}/${MAX_ITER}t) ════"
+echo "════ STAGE 1: initial rollout (base 9B, pure ReAct, ${MAX_MODEL_LEN}/${MAX_ITER}t) ════"
 serve_policy "$BASE_MODEL" "$SERVED_POLICY"
 pids=()
 for ((SH=0; SH<ROLL_SHARDS; SH++)); do
   port=${POLICY_PORTS[$((SH % N_GPUS))]}
   python -m src.run --mode run --benchmark browsecomp-plus --client litellm \
     --model "openai/$SERVED_POLICY" --agent_api_base "http://localhost:$port/v1" \
-    --data "$DATA" --results_dir "$RESULTS_DIR" --run_dir "$A0_TAG" --run_id "run_all" \
+    --data "$DATA" --results_dir "$RESULTS_DIR" --run_dir "$INIT_TAG" --run_id "run_all" \
     --shard "$SH" --num_shards "$ROLL_SHARDS" \
     --summarizer_model "openai/$SERVED_POLICY" --summarizer_api_base "http://localhost:$port/v1" \
     "${RETR_ARGS[@]}" \
     --override runtime.use_memory_tools=false agent.context_window=$MAX_MODEL_LEN runtime.max_iterations=$MAX_ITER \
-    --log_level INFO > "$LD/a0_sh${SH}.log" 2>&1 &
+    --log_level INFO > "$LD/init_sh${SH}.log" 2>&1 &
   pids+=($!)
 done
-wait "${pids[@]}" || echo "  some A_0 shards non-zero (see $LD/a0_sh*.log)"
-A0_DIR="$POLICY_ROOT/$A0_TAG/run_all"
-A0_GRADE="$POLICY_ROOT/eval_bcp/$A0_TAG/run_all"
-python scripts/grade_bcp_gpt5.py --input_dir "$A0_DIR" --eval_dir "$A0_GRADE" --workers 16 2>&1 | tee "$LD/a0_grade.log"
+wait "${pids[@]}" || echo "  some initial shards non-zero (see $LD/init_sh*.log)"
+INIT_DIR="$POLICY_ROOT/$INIT_TAG/run_all"
+INIT_GRADE="$POLICY_ROOT/eval_bcp/$INIT_TAG/run_all"
+python scripts/grade_bcp_gpt5.py --input_dir "$INIT_DIR" --eval_dir "$INIT_GRADE" --workers 16 2>&1 | tee "$LD/init_grade.log"
 free_gpus
 
-echo "════ STAGE 2: teacher annotate FAILED A_0 trajectories (${TEACHER_ANNOT_MODEL}) ════"
+echo "════ STAGE 2: teacher annotate FAILED initial trajectories (${TEACHER_ANNOT_MODEL}) ════"
 mkdir -p "$ANNOT_DIR"
 ANNOT_ARGS=(); [ "$ANNOT_LIMIT" -gt 0 ] && ANNOT_ARGS+=(--limit "$ANNOT_LIMIT")
 python -m src.teacher_guide.run \
-  --run_dir "$A0_DIR" --eval_dir "$A0_GRADE" --out_dir "$ANNOT_DIR" \
+  --run_dir "$INIT_DIR" --eval_dir "$INIT_GRADE" --out_dir "$ANNOT_DIR" \
   --teacher_model "$TEACHER_ANNOT_MODEL" --teacher_api_base "$TEACHER_ANNOT_API_BASE" \
   --max_workers 4 --skip_existing "${ANNOT_ARGS[@]}" 2>&1 | tee "$LD/annotate.log"
 [ "$(ls "$ANNOT_DIR" 2>/dev/null | grep -c '\.json$')" -gt 0 ] || { echo "ERROR: no annotations written"; exit 1; }
@@ -136,7 +136,7 @@ for REP in $(seq 1 "$RESUME_REPS"); do
   RTAG="${RESUME_TAG}-run${REP}"; ROUT="$POLICY_ROOT/$RTAG/run_all"
   RES_ARGS=(); [ "$ANNOT_LIMIT" -gt 0 ] && RES_ARGS+=(--limit "$ANNOT_LIMIT")
   python -m src.teacher_guide.resume \
-    --annotations_dir "$ANNOT_DIR" --rollouts_dir "$A0_DIR" --out_dir "$ROUT" \
+    --annotations_dir "$ANNOT_DIR" --rollouts_dir "$INIT_DIR" --out_dir "$ROUT" \
     --student_model "openai/$SERVED_MEMTOOL" --agent_api_bases "$AGENT_BASES" \
     --summarizer_model "openai/$SERVED_MEMTOOL" --summarizer_api_base "http://localhost:${POLICY_PORTS[0]}/v1" \
     --index_path "$BM25_INDEX" --max_workers "$MAX_WORKERS" --skip_existing \
@@ -149,7 +149,7 @@ free_gpus
 
 echo
 echo "════ DONE $(date -Is) ════"
-echo "  A_0 rollout : $A0_DIR"
+echo "  initial rollout : $INIT_DIR"
 echo "  annotations : $ANNOT_DIR"
 echo "  resumed     : $POLICY_ROOT/${RESUME_TAG}-run*/run_all"
 echo "  logs        : $LD"

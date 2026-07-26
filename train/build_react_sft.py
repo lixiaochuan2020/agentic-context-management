@@ -1,20 +1,20 @@
-"""Build per-turn SFT JSONL from CORRECT *pure-ReAct* (2-tool) A_0 trajectories.
+"""Build per-turn SFT JSONL from CORRECT *pure-ReAct* (2-tool) initial trajectories.
 
 Self-distillation warm-up: train Qwen3.5-9B on its OWN correct ReAct rollouts
 (search + get_document only — NO memory tools). Unlike
-`src.teacher_correct_oversummary.build_a0_correct_sft` (which relabels A_0 into
+`src.teacher_correct_oversummary.build_init_correct_sft` (which relabels initial into
 the 4-tool memory schema), this keeps the 2-tool system prompt + tool set, so
 the samples match the inference view of a no-memory-tool agent.
 
-Re-uses v5_p3_5's `emit_per_turn_samples`. ReAct trajectories contain no
+Re-uses the teacher-guided preprocess's `emit_per_turn_samples`. ReAct trajectories contain no
 `manage_context` compressions, so prefix reconstruction (boundary_0=2) is a
 straight slice of the live history.
 
 Usage:
-    python -m train.build_react_a0_sft \\
-        --rollouts_dir results/browsecomp-plus/qwen3.5-9b-base/rollout-v5_gpt5_teacher-a0/run_all \\
-        --grade_path   results/browsecomp-plus/qwen3.5-9b-base/rollout-v5_gpt5_teacher-a0/run_all/gpt5_eval.json \\
-        --output       data/sft/react_a0_warmup.jsonl
+    python -m train.build_react_sft \\
+        --rollouts_dir results/browsecomp-plus/qwen3.5-9b-base/rollout-teacher_guide-init/run_all \\
+        --grade_path   results/browsecomp-plus/qwen3.5-9b-base/rollout-teacher_guide-init/run_all/gpt5_eval.json \\
+        --output       data/sft/react_init_warmup.jsonl
 """
 from __future__ import annotations
 
@@ -30,10 +30,10 @@ sys.path.insert(0, str(REPO))
 
 from src.prompts import build_system_prompt
 from src.tools import get_tools
-from train.preprocess_v5_teacher_guide_p3_5 import emit_per_turn_samples, _normalize_messages
+from train.preprocess_teacher_guide import emit_per_turn_samples, _normalize_messages
 
 
-logger = logging.getLogger("build_react_a0_sft")
+logger = logging.getLogger("build_react_sft")
 
 
 def emit_messages_sample(*, raw, sys_prompt, tools, tokenizer, qid, max_tokens):
@@ -62,8 +62,8 @@ def emit_messages_sample(*, raw, sys_prompt, tools, tokenizer, qid, max_tokens):
         "messages": messages,
         "tools": tools,
         "qid": qid,
-        "source": "react_a0",
-        "category": "react_a0_correct",
+        "source": "react_init",
+        "category": "react_init_correct",
         "n_tokens": n_tok,
     }, None
 
@@ -152,9 +152,9 @@ def main() -> None:
                 sys_prompt_4tool=sys_prompt_2tool,   # generic helper: pass the 2-tool prompt
                 tools_4tool=tools_2tool,             # ...and the 2-tool set
                 tokenizer=tokenizer,
-                source_label="react_a0",
+                source_label="react_init",
                 qid=qid,
-                category="react_a0_correct",
+                category="react_init_correct",
             )
             samples.extend(new_samples)
             skipped.update(skips)
