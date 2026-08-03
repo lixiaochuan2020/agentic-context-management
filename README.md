@@ -12,7 +12,7 @@ ACM: Agentic Context Management for Long Horizon Tasks
 
 <div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg?style=flat)](https://arxiv.org/abs/XXXX.XXXXX)
+[![arXiv](https://img.shields.io/badge/arXiv-2607.23809-b31b1b.svg?style=flat)](https://arxiv.org/pdf/2607.23809)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](./LICENSE)
 [![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-Collection-ffbd45.svg?style=flat)](https://huggingface.co/collections/lixiaochuan2020/acm-agentic-context-management-for-long-horizon-tasks-6a5d7d231cf4f1044dbbcae3)
 
@@ -134,5 +134,11 @@ On a SLURM cluster, add your scheduler header (`#SBATCH --partition/--qos/--node
 If you find this work or code useful, please consider citing:
 
 ```bibtex
-empty
+@article{li2026acm,
+  title={ACM: Agentic Context Management for Long Horizon Tasks},
+  author={Li, Xiaochuan and Ming, Ryan and Chu, Meng and Shao, Shuai and Jin, Rong and Xiong, Chenyan},
+  journal={arXiv preprint arXiv:2607.23809},
+  year={2026}
+}
+
 ```
