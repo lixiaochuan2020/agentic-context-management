@@ -26,7 +26,7 @@ We propose a post-training pipeline that teaches a model to manage its own conte
 
 ```
   1. Student Rollout   Qwen3.5-9B (ReAct mode) rolls out on the training set; results are graded to filter the data.
-  2. Teacher Annotate  GPT-5 annotates the failed trajectories.
+  2. Teacher Annotate  GPT-5.5 annotates the failed trajectories.
   3. Student Resume    The student resumes from each annotation over 4 trials; results are graded, keeping only questions it does not solve every time.
   4. Teacher Label     The teacher scores top-K logprobs on the kept traces.
   5. KD Train          Train the student on the teacher logprobs.
@@ -58,7 +58,7 @@ uv sync
 source .venv/bin/activate
 ```
 
-**2. API keys** — copy the template and fill in the keys you use (OpenAI for the GPT-5 teacher/grader, an HF token for downloads):
+**2. API keys** — copy the template and fill in the keys you use (OpenAI for the GPT-5.5 teacher and the GPT-5 grader, an HF token for downloads):
 
 ```bash
 cp .env-example .env    # then edit
