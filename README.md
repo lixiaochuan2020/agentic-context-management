@@ -3,44 +3,22 @@ ACM: Agentic Context Management for Long Horizon Tasks
 </h1>
 
 <div align="center">
-<a href="https://xiaochuanli.com/">Xiaochuan Li</a>¹*, <a href="https://github.com/Nozom1466">Ryan Ming</a>¹*, Meng Chu¹,
-
-<a href="https://scholar.google.com/citations?user=Rw4NiLAAAAAJ&hl=en">Shuai Shao</a>², <a href="https://scholar.google.com/citations?hl=zh-CN&user=CS5uNscAAAAJ&view_op=list_works&sortby=pubdate">Rong Jin</a>², <a href="https://www.cs.cmu.edu/~cx/">Chenyan Xiong</a>¹
-
-¹ Carnegie Mellon University   ² Meta   *Equal contribution
+Anonymous Authors (ICLR 2027 submission)
 </div>
 
 <div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-2607.23809-b31b1b.svg?style=flat)](https://arxiv.org/pdf/2607.23809)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](./LICENSE)
-[![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-Collection-ffbd45.svg?style=flat)](https://huggingface.co/collections/lixiaochuan2020/acm-agentic-context-management-for-long-horizon-tasks-6a5d7d231cf4f1044dbbcae3)
 
 </div>
 
 ## Data & Checkpoints
 
-All released models and datasets live in one collection:
-[🤗 **ACM: Agentic Context Management for Long Horizon Tasks**](https://huggingface.co/collections/lixiaochuan2020/acm-agentic-context-management-for-long-horizon-tasks-6a5d7d231cf4f1044dbbcae3)
-
-**Student rollouts** — pass@4 on BrowseComp-Plus `train-680`:
-- [acm-browsecompplus-train-rollouts-qwen3.5-9b](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b) — base Qwen3.5-9B; both `react/` (ReAct) and `memtool/` (ACM) modes
-- [acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch1](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch1) — ACM post-trained, epoch 1
-- [acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch2](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch2) — ACM post-trained, epoch 2
-
-**Teacher OPD logprobs cache** — Qwen3.5-397B-A17B top-K logprobs:
-- [acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch1](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch1)
-- [acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch2](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch2)
-- [acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch3](https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-teacher-logprobs-qwen3.5-9b-epoch3)
-
-**Post-trained checkpoints** — ACM Agent (Qwen3.5-9B), OPD iterations:
-- [acm-browsecompplus-qwen3.5-9b-opd-iter1](https://huggingface.co/lixiaochuan2020/acm-browsecompplus-qwen3.5-9b-opd-iter1)
-- [acm-browsecompplus-qwen3.5-9b-opd-iter2](https://huggingface.co/lixiaochuan2020/acm-browsecompplus-qwen3.5-9b-opd-iter2)
-- [acm-browsecompplus-qwen3.5-9b-opd-iter3](https://huggingface.co/lixiaochuan2020/acm-browsecompplus-qwen3.5-9b-opd-iter3)
+The student rollouts, teacher logprob caches, and post-trained checkpoints are hosted on the Hugging Face Hub. The links are withheld during anonymous review and will be added upon publication.
 
 ## Intro
 
-This is the official repository for the paper "ACM: Agentic Context Management for Long-Horizon Tasks" [arxiv link here].
+This repository contains the code for the anonymous submission "ACM: Agentic Context Management for Long-Horizon Tasks".
 
 We propose a post-training pipeline that teaches a model to manage its own context on long-horizon agentic tasks. It has two key properties. First, it is **agent-native**: the agent decides when to compress context itself, instead of being forced by an external trigger. Second, it is **lossless**: discarded context is written to disk and kept permanently, so the agent can go back and retrieve any earlier information when it needs it.
 
@@ -110,10 +88,10 @@ For the KD init (`STUDENT_LM`), you may strip the 9B to language-model-only — 
 
 The small question sets ship in `data/`: `bcp_train_680.json` (rollout pool), `bcp_eval_150.json` (held-out eval), and `bcp_full.json`.
 
-The full pass@4 student rollouts (MemTool + ReAct, 4 runs each, ~4.4 GB) are too large for the repo, so they live on HuggingFace (see **Data & Checkpoints** above). Download them with:
+The full pass@4 student rollouts (MemTool + ReAct, 4 runs each, ~4.4 GB) are too large for the repo, so they live on the Hugging Face Hub (see **Data & Checkpoints** above). Download them with:
 
 ```bash
-hf download lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b --repo-type dataset --local-dir <dir>
+hf download <anonymized>/acm-browsecompplus-train-rollouts-qwen3.5-9b --repo-type dataset --local-dir <dir>
 ```
 
 ## Running
@@ -128,17 +106,3 @@ SMOKE=0 bash scripts/run_bcp_opd_pipeline.sh    # full run
 ```
 
 On a SLURM cluster, add your scheduler header (`#SBATCH --partition/--qos/--nodelist --gres=gpu:8`) and `sbatch` it. Each stage also runs on its own via the per-stage scripts in `scripts/` (e.g. `run_teacher_guided_train680.sh`, `run_distill_score.sh`, `run_distill_train.sh`, `bcp_eval.sh`).
-
-## 📚 Citation
-
-If you find this work or code useful, please consider citing:
-
-```bibtex
-@article{li2026acm,
-  title={ACM: Agentic Context Management for Long Horizon Tasks},
-  author={Li, Xiaochuan and Ming, Ryan and Chu, Meng and Shao, Shuai and Jin, Rong and Xiong, Chenyan},
-  journal={arXiv preprint arXiv:2607.23809},
-  year={2026}
-}
-
-```
